@@ -1,101 +1,103 @@
 
 # coding: utf-8
 
-# In[29]:
+# In[2]:
 
 #Long Short Term Neural Net using Python
 
 
-# In[30]:
+# In[3]:
 
 import pandas as pd
 import numpy as np
-import scipy as sp
 import keras
 from ggplot import *
 from matplotlib import pyplot
+import math
 
 
-# In[31]:
+# In[4]:
 
 features = pd.read_csv("~/Documents/Walmart Data/features.csv")
 features.head()
 
 
-# In[32]:
+# In[5]:
 
 features.shape
 
 
-# In[33]:
+# In[6]:
 
 pre_train = pd.read_csv("~/Documents/Walmart Data/train 2.csv")
 pre_train.head()
 
 
-# In[34]:
+# In[7]:
 
 pre_train.shape
 
 
-# In[35]:
+# In[8]:
 
 stores = pd.read_csv("~/Documents/Walmart Data/stores.csv")
 stores.head()
 
 
-# In[36]:
+# In[9]:
 
 stores.shape
 
 
-# In[37]:
+# In[10]:
 
 true_train = pd.merge(pd.merge(pre_train, features, how = 'left',
                                left_on = ['Store', 'Date'], right_on = ['Store', 'Date']), 
                       stores, left_on = ['Store'], right_on = ['Store'])
 true_train['Date'] = pd.to_datetime(true_train['Date'])
-true_train = true_train.drop(['IsHoliday_y', 'Type'], 1)
+true_train = true_train.drop(['IsHoliday_y', 'Type', 'MarkDown1', 
+                             'MarkDown2', 'MarkDown3', 'MarkDown4',
+                             'MarkDown5'], 1)
 true_train = true_train.fillna(true_train.median())
 true_train.head()
 
 
-# In[38]:
+# In[11]:
 
 true_train.shape
 
 
-# In[39]:
+# In[12]:
 
 #Exploratory Analysis
 
 
-# In[40]:
+# In[13]:
 
 ggplot(aes(x = 'Store', y = 'Weekly_Sales', color = 'factor(Store)'), true_train) + geom_point() +theme_bw()
 
 
-# In[41]:
+# In[14]:
 
 ggplot(aes(x = 'Date', y = 'Weekly_Sales', colour = 'factor(Store)'), true_train) + geom_point() +scale_x_date(format = '%b-%Y') +theme_bw()
 
 
-# In[42]:
+# In[15]:
 
 ggplot(aes('Fuel_Price', "Weekly_Sales", colour = 'factor(Store)'), true_train) + geom_point() +theme_bw()
 
 
-# In[43]:
+# In[16]:
 
 ggplot(aes('IsHoliday_x', "Weekly_Sales"), true_train) + geom_boxplot() +theme_bw()
 
 
-# In[44]:
+# In[17]:
 
 #LTSM Neural Net
 
 
-# In[45]:
+# In[18]:
 
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.preprocessing import LabelEncoder
@@ -106,7 +108,7 @@ from keras.layers import LSTM
 from matplotlib import pyplot
 
 
-# In[46]:
+# In[19]:
 
 true_train['IsHoliday_x'] = true_train['IsHoliday_x'].astype(int) #Convert IsHolidayX to a boolean
 true_train2 = true_train.sort_values('Date')
@@ -115,161 +117,163 @@ true_train2 = true_train2.drop('Date',1)
 true_train2.head()
 
 
-# In[47]:
+# In[20]:
 
-def series_to_supervised(data, n_in=1, n_out=1, dropnan=True):
-    """
-    Returns a time series into a dataset applicable for supervised learning
-    
-    Arguments:
-    data -- the timeseries data to be converted into supervised learning data
-    n_in -- determines input sequence n. Default is n = 1
-    n_out -- determines forecast sequence n. Default is n = 1
-    dropnan -- True/False if the user wishes to eliminate all row values with a NaN in them. 
-    Default is True.
-    
-    Returns:
-    agg - the supervised learning dataset
-    """
-    n_vars = 1 if type(data) is list else data.shape[1]
+def timeseries_to_supervised(data, lag=1):
     df = pd.DataFrame(data)
-    cols, names = list(), list()
-    # input sequence (t-n, ... t-1)
-    for i in range(n_in, 0, -1):
-        cols.append(df.shift(i))
-        names += [('var%d(t-%d)' % (j+1, i)) for j in range(n_vars)]
-    # forecast sequence (t, t+1, ... t+n)
-    for i in range(0, n_out):
-        cols.append(df.shift(-i))
-        if i == 0:
-            names += [('var%d(t)' % (j+1)) for j in range(n_vars)]
-        else:
-            names += [('var%d(t+%d)' % (j+1, i)) for j in range(n_vars)]
-    # put it all together
-    agg = pd.concat(cols, axis=1)
-    agg.columns = names
-    # drop rows with NaN values
-    if dropnan:
-        agg.dropna(inplace=True)
-    return agg
+    columns = [df.shift(i) for i in range(1, lag+1)]
+    columns.append(df)
+    df = pd.concat(columns, axis=1)
+    df.fillna(0, inplace=True)
+    return df
 
 
-# In[48]:
+# In[21]:
 
-#true_train2 = true_train2.drop('Weekly_Sales', 1)
-
-msk = np.random.rand(len(true_train2)) < 0.8
-
-train = true_train2[msk]
-test = true_train2[~msk]
-train_y = train['Weekly_Sales']
-test_y = test['Weekly_Sales']
-train = train.drop('Weekly_Sales',1)
-test = test.drop('Weekly_Sales',1)
-
-values = train.values
+values = true_train2.values
 
 values = values.astype('float32')
 # normalize features
 scaler = MinMaxScaler(feature_range=(0, 1))
 scaled = scaler.fit_transform(values)
 # frame as supervised learning
-reframed = series_to_supervised(scaled, 1, 1)
-# drop columns we don't want to predict
-
-# reshape input to be 3D [samples, timesteps, features]
-train_X = values.reshape((train.shape[0], 1, train.shape[1]))
-#test_X = true_test2.reshape((true_test.shape[0], 1, true_test.shape[1]))
+reframed = timeseries_to_supervised(scaled, 1)
 
 
-# In[49]:
+# In[23]:
 
-values = test.values
-
-values = values.astype('float32')
-# normalize features
-scaler = MinMaxScaler(feature_range=(0, 1))
-scaled = scaler.fit_transform(values)
-# frame as supervised learning
-reframed = series_to_supervised(scaled, 1, 1)
-# drop columns we don't want to predict
-
-# reshape input to be 3D [samples, timesteps, features]
-test_X = values.reshape((test.shape[0], 1, test.shape[1]))
+reframed.head()
 
 
-# In[50]:
+# In[26]:
 
-model = Sequential()
-#return_sequences = True allows us to build multi-layer NNs
-model.add(LSTM(50, input_shape=(train_X.shape[1], train_X.shape[2]), return_sequences = True))
-model.add(LSTM(25, return_sequences = True))
-model.add(LSTM(10))
-#Dense determines how many outputs come from our NN
-model.add(Dense(1))
-model.compile(loss='mae', optimizer='adam')
-# fit network
-history = model.fit(train_X, train_y, epochs=60, batch_size=64, 
-                    validation_data=(test_X, test_y), verbose=2, shuffle=False)
+#reframed.drop(reframed.columns[[range(1:13)]], axis=1, inplace=True)
+#msk = np.random.rand(len(reframed)) < 0.985
+n = 415000
+train = reframed.iloc[range(n),:]
+test = reframed.iloc[range(n, reframed.shape[0]),:]
+train_y = scaler.inverse_transform(scaled)[range(n),2]
+test_y = scaler.inverse_transform(scaled)[range(n, reframed.shape[0]),2]
+train.drop(train[2], axis = 1, inplace = True)
+test.drop(test[2], axis = 1, inplace = True)
+
+train.head()
+
+
+# In[27]:
+
+test.head()
+
+
+# In[28]:
+
+train_y
+
+
+# In[29]:
+
+test_y
+
+
+# In[30]:
+
+train_X = train.values.reshape((train.shape[0], 1, train.shape[1]))
+test_X = test.values.reshape((test.shape[0], 1, test.shape[1]))
 
 
 # In[ ]:
+
+#Multiple Hidden Layers
+#model = Sequential()
+#return_sequences = True allows us to build multi-layer NNs
+#model.add(LSTM(50, input_shape=(train_X.shape[1], train_X.shape[2]), return_sequences = True))
+#model.add(LSTM(25, return_sequences = True))
+#model.add(LSTM(12))
+#Dense determines how many outputs come from our NN
+#model.add(Dense(1))
+
+#model.compile(loss='mse', optimizer='adam')
+# fit network
+#history = model.fit(train_X, train_y, epochs=25, batch_size=64, 
+#                    validation_data=(test_X, test_y), verbose=2, shuffle=False)
+
+
+# In[31]:
+
+model = Sequential()
+#return_sequences = True allows us to build multi-layer NNs
+model.add(LSTM(128, input_shape=(train_X.shape[1], train_X.shape[2])))
+#Dense determines how many outputs come from our NN
+model.add(Dense(1))
+model.compile(loss='mse', optimizer='adagrad')
+# fit network
+history = model.fit(train_X, train_y, epochs=25, batch_size=64, 
+                    validation_data=(test_X, test_y), verbose=2, shuffle=False)
+
+
+# In[32]:
 
 pyplot.plot(history.history['loss'], label='train')
 pyplot.plot(history.history['val_loss'], label='test')
 pyplot.legend()
 pyplot.show()
- 
-# make a prediction
+
+
+# In[33]:
+
 yhat = model.predict(test_X)
 test_X = test_X.reshape((test_X.shape[0], test_X.shape[2]))
-# invert scaling for forecast
-inv_yhat = np.concatenate((yhat, test_X[:, 1:]), axis=1)
-inv_yhat = scaler.inverse_transform(inv_yhat)
-inv_yhat = inv_yhat[:,0]
-# invert scaling for actual
 test_y = test_y.reshape((len(test_y), 1))
-inv_y = np.concatenate((test_y, test_X[:, 1:]), axis=1)
-inv_y = scaler.inverse_transform(inv_y)
-inv_y = inv_y[:,0]
+
 # calculate RMSE
-rmse = sqrt(mean_squared_error(inv_y, inv_yhat))
-print('Test RMSE: %.3f' % rmse)
+mse = mean_squared_error(test_y, yhat)
+print('Test MSE: %.3f' % mse)
 
 
-# In[ ]:
+# In[35]:
+
+rmse = math.sqrt(mean_squared_error(test_y, yhat))
+#nrmse = rmse/np.ptp(values)
+nrmse = rmse/np.mean(values)
+print('Test RMSE %.3f' % rmse)
+print('Test NRMSE % .3f' % nrmse)
+
+
+# In[36]:
 
 #Setting Up WalMart Test Data for Predictions
 
 
-# In[ ]:
+# In[37]:
 
 pre_test = pd.read_csv("~/Documents/Walmart Data/test 2.csv")
 pre_test.head()
 
 
-# In[ ]:
+# In[38]:
 
 pre_test.shape
 
 
-# In[ ]:
+# In[48]:
 
 true_test = pd.merge(pd.merge(pre_test, features, how = 'left',
                               left_on = ['Store', 'Date'], right_on = ['Store', 'Date']),
                      stores, left_on = ['Store'], right_on = ['Store'])
 true_test['Date'] = pd.to_datetime(true_test['Date'])
-true_test = true_test.drop(['IsHoliday_y', 'Type'], 1)
+true_test = true_test.drop(['IsHoliday_y', 'Type', 'MarkDown1', 
+                             'MarkDown2', 'MarkDown3', 'MarkDown4',
+                             'MarkDown5'], 1)
 true_test = true_test.fillna(true_test.median())
 true_test.head()
 
 
-# In[ ]:
+# In[49]:
 
 true_test.shape
 
 
-# In[ ]:
+# In[50]:
 
 true_test['IsHoliday_x'] = true_test['IsHoliday_x'].astype(int)
 true_test2 = true_test.sort_values('Date')
@@ -277,3 +281,25 @@ true_test2 = true_test2.set_index(true_test2['Date'])
 true_test2 = true_test2.drop('Date',1)
 true_test2.head()
 
+
+# In[51]:
+
+values = true_test2.values
+
+values = values.astype('float32')
+# normalize features
+scaler = MinMaxScaler(feature_range=(0, 1))
+scaled = scaler.fit_transform(values)
+# frame as supervised learning
+reframed = timeseries_to_supervised(scaled, 1)
+
+
+# In[52]:
+
+final_train = reframed.values.reshape((reframed.shape[0], 1, reframed.shape[1]))
+final_train
+
+
+# In[53]:
+
+model.predict(final_train)
